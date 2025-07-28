@@ -11,4 +11,6 @@ struct HealthEntry: Codable {
     let sleepHours: Int
     let waterIntake: Int
     let mood: String
+    let createdAt: String  // Add createdAt if needed for consistency with the backend
 }
+

@@ -1,5 +1,4 @@
-require('dotenv').config(); // Load environment variables from .env
-
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
@@ -7,34 +6,24 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const helmet = require('helmet');
 
+// Initialize the app
 const app = express();
-const port = process.env.PORT || 3000;
-
-// Load environment variables
-const mongoURI = process.env.MONGO_URI;
-const jwtSecret = process.env.JWT_SECRET;
-
-if (!mongoURI || !jwtSecret) {
-  console.error("❌ Missing required environment variables (MONGO_URI or JWT_SECRET)");
-  process.exit(1);
-}
-
-// Models
-const HealthEntry = require('./models/HealthEntry');
-const User = require('./models/User');
+const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(express.json());
-app.use(cors());
 app.use(helmet());
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Connect to MongoDB
-mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ Connected to MongoDB Atlas'))
-  .catch((err) => {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  });
+  .catch((error) => console.error('❌ MongoDB connection error:', error));
+
+// Models
+const HealthEntry = require('./models/HealthEntry');  // Health data schema
+const User = require('./models/User');  // User model for authentication
 
 // JWT Auth Middleware
 function authenticateToken(req, res, next) {
@@ -42,7 +31,7 @@ function authenticateToken(req, res, next) {
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Access token missing' });
 
-  jwt.verify(token, jwtSecret, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid token' });
     req.user = user;
     next();
@@ -50,84 +39,79 @@ function authenticateToken(req, res, next) {
 }
 
 // Routes
+
+// Root route (for health check)
+app.get('/', (req, res) => {
+  res.send('🚀 Health Tracker API is up and running');
+});
+
+// Health check route
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// User registration route
 app.post('/signup', async (req, res) => {
-  try {
-    const { username, email, password } = req.body;
+  const { username, email, password } = req.body;
+  const existingUser = await User.findOne({ email });
+  
+  if (existingUser) return res.status(400).json({ error: 'User already exists' });
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ error: 'User already exists' });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ username, email, password: hashedPassword });
-    await user.save();
-
-    res.status(201).json({ message: 'User created successfully' });
-  } catch (err) {
-    console.error('Signup error:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const newUser = new User({ username, email, password: hashedPassword });
+  await newUser.save();
+  res.status(201).json({ message: 'User created successfully' });
 });
 
+// User login route
 app.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
+  const { email, password } = req.body;
+  const user = await User.findOne({ email });
+  
+  if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
-
-    const token = jwt.sign({ userId: user._id, email: user.email }, jwtSecret, {
-      expiresIn: '1h'
-    });
-
-    res.json({ token });
-  } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  const token = jwt.sign({ userId: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  res.json({ token });
 });
 
+// Submit health data route
 app.post('/submit', authenticateToken, async (req, res) => {
   try {
-    const entry = new HealthEntry(req.body);
-    await entry.save();
-    console.log('Saved data:', entry);
-    res.status(200).send('Data received and saved');
+    const { sleepHours, waterIntake, mood } = req.body;
+    
+    if (!sleepHours || !waterIntake || !mood) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const newHealthEntry = new HealthEntry({
+      sleepHours,
+      waterIntake,
+      mood,
+    });
+
+    await newHealthEntry.save();
+    res.status(200).json({ message: 'Health entry submitted successfully' });
   } catch (err) {
-    console.error('Error saving entry:', err);
-    res.status(500).send('Server error');
+    console.error('Error in /submit route:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
+// Fetch all health entries
 app.get('/entries', authenticateToken, async (req, res) => {
   try {
     const entries = await HealthEntry.find().sort({ createdAt: -1 });
     res.json(entries);
   } catch (err) {
     console.error('Error fetching entries:', err);
-    res.status(500).send('Server error');
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-
-// ✅ TEST ROUTES TO CONFIRM SERVER IS LIVE
-app.get('/', (req, res) => {
-  res.send('Health Tracker Backend is Live!');
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'API is working' });
-});
-
-// A simple health check route
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ message: 'Health check passed' });
-});
-
-
 // Start server
-app.listen(port, () => {
-  console.log(`🚀 Server running on http://localhost:${port}`);
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

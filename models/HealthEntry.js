@@ -14,6 +14,11 @@ const healthEntrySchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User', // Link this entry to a specific user
+    required: true,
+  }
 }, {
   timestamps: true, // Adds createdAt and updatedAt fields automatically
 });
