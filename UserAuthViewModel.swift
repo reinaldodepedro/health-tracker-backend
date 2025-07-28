@@ -18,7 +18,8 @@ class UserAuthViewModel: ObservableObject {
     @Published var isLoggedIn = false
     @Published var errorMessage = ""
 
-    let baseURL = "http://192.168.1.37:3000"
+    let baseURL = "https://health-tracker-backend-7ksr.onrender.com"
+
 
     func login() {
         guard let url = URL(string: "\(baseURL)/login") else {
